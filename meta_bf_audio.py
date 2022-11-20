@@ -204,7 +204,7 @@ def print_results(printables, dict, has_space):
 
 # This function fixes the audio. It does let us choose between stereo and dual mono. 
 def audio_fix(title, integrated, true_peak, lra, threshold, dual_mono_string, code):
-    fixed_output = f"{title}_FIXED.mov"
+    fixed_output = f"{title.removesuffix('.mov')}_FIXED.mov"
     
     fix_code = code.format(source=title, integrated=integrated, true_peak=true_peak, lra=lra, threshold=threshold, dual_mono=dual_mono_string, fixed_output=fixed_output)
 
