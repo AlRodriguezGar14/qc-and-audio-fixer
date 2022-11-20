@@ -45,17 +45,18 @@ def analysis(what_do, input, source_index, temp_output):
 ## This is for searching the results of the analyze function
 ## Currently if the video has two video streams the app crashes here. It's useful because it's a good reminder to delete the timecode track, but crashing the app is never good. I have to understand what happens and fix it in future versions.
 def search(list_of_keywords, where_search, where_save):
-
     for keyword in list_of_keywords:
-
         # This is to avoid rewritting. Important with the ffprobe code. This way we avoid the audio data (because it comes later) rewritting the video data.
         # It's very importat to know the given outpout in order to make this work.
         if keyword in where_search:
-            if keyword in where_save.keys():
-                where_save[f'{keyword}_copy'] = where_search
-                continue
+            if where_search != "codec_type = data":
+                if keyword in where_save.keys():
+                    where_save[f'{keyword}_copy'] = where_search
+                else:
+                    where_save[keyword] = where_search
             else:
-                where_save[keyword] = where_search
+                where_save['timecode_track'] = True
+                break
 
 
        
@@ -88,6 +89,8 @@ def metadata_results(read_file):
     
     data_results = open(read_file, 'r')
     extract_data = data_results.readlines()
+    
+    timecode_track_status = f"\n{Back.GREEN}{Fore.BLACK} No timecode track found {Style.RESET_ALL}\n"
 
     # burn the information in video_data. It's very importat to know the given outpout in order to make this work. Writting the original ffprobe code in order to get only the streams list is not working correctly.
     for line in extract_data:
@@ -95,7 +98,15 @@ def metadata_results(read_file):
         
         search([ 'codec_name', 'codec_type', 'codec_tag_string', 'width', 'height', 'sample_aspect_ratio', 'field_order', 'r_frame_rate', 'color_space', 'color_primaries', 'color_transfer', 'color_range'], new_line, video_data)
 
+        ## We sanitize the code. If there is a data stream we Stop automatically the process.
+        if video_data['timecode_track']:
+            timecode_track_status = f"\n{Back.RED}{Fore.BLACK} Timecode track found. It will be removed. {Style.RESET_ALL}\n"
+            global ffmpeg_audio_fix
+            ffmpeg_audio_fix = remove_timecode_and_fix_audio
+            break
 
+    print(timecode_track_status)
+    
     if video_data['codec_type'] == "codec_type = audio":
 
         # Remove the temporary file. If we reach here there has not been errors. That means that it is not necessary.    
@@ -118,15 +129,19 @@ def metadata_results(read_file):
         ["Color Range", "color_range"],
         ]
 
-# Convert the framerate to the software standard   
-        video_data['r_frame_rate_clean'] = round(eval(video_data['r_frame_rate_copy'].removeprefix('r_frame_rate = ')), 3)
-        int_of_float = int(video_data['r_frame_rate_clean'])
-        if (int_of_float == 30) or (int_of_float == 24) or (int_of_float == 25):
-            video_data['r_frame_rate_copy'] = f"r_frame_rate = {int_of_float}"
-        else:
-            rounded = round(float(video_data['r_frame_rate_clean']), 3)
 
-            video_data['r_frame_rate_copy'] = f"r_frame_rate = {rounded}"
+        try:
+# Convert the framerate to the software standard   
+            video_data['r_frame_rate_clean'] = round(eval(video_data['r_frame_rate_copy'].removeprefix('r_frame_rate = ')), 3)
+            int_of_float = int(video_data['r_frame_rate_clean'])
+            if (int_of_float == 30) or (int_of_float == 24) or (int_of_float == 25):
+                video_data['r_frame_rate_copy'] = f"r_frame_rate = {int_of_float}"
+            else:
+                rounded = round(float(video_data['r_frame_rate_clean']), 3)
+
+                video_data['r_frame_rate_copy'] = f"r_frame_rate = {rounded}"
+        except:
+            print("\nNo data available.\n")
             
 
 
@@ -148,9 +163,8 @@ def metadata_results(read_file):
                 video_data['r_frame_rate'] = f"r_frame_rate = {rounded}"
                 
         except: 
-            print()
+            print("\nNo data available.\n")
 
-        print(f"Video review: {Back.GREEN}{Fore.BLACK} Success {Style.RESET_ALL}\n")
         # Remove the temporary file. If we reach here there has not been errors. That means that it is not necessary.    
         os.system(f"rm {read_file}")
         
@@ -172,8 +186,6 @@ def metadata_results(read_file):
         
         print_results(printables, video_data, has_space=True)
 
-    else:
-        print('Remove the timecode track, please')
 
 
 
@@ -191,17 +203,24 @@ def print_results(printables, dict, has_space):
 
 
 # This function fixes the audio. It does let us choose between stereo and dual mono. 
-def audio_fix(title, integrated, true_peak, lra, threshold, dual_mono, audio_format):
+def audio_fix(title, integrated, true_peak, lra, threshold, dual_mono_string, code):
     fixed_output = f"{title}_FIXED.mov"
     
-    fix_code = audio_format.format(source=title, integrated=integrated, true_peak=true_peak, lra=lra, threshold=threshold, dual_mono=dual_mono, fixed_output=fixed_output)
+    fix_code = code.format(source=title, integrated=integrated, true_peak=true_peak, lra=lra, threshold=threshold, dual_mono=dual_mono_string, fixed_output=fixed_output)
 
     fix = subprocess.Popen(fix_code, shell=True, text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     for line in fix.stderr:
         sys.stdout.write(line)
     fix.wait()
 
-
+def timecode_remover(title, code):
+    fixed_output = f"{title.removesuffix('.mov')}_FIXED.mov"
+    
+    fix_code = code.format(source=title, fixed_output=fixed_output)
+    fix = subprocess.Popen(fix_code, shell=True, text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+    for line in fix.stderr:
+        sys.stdout.write(line)
+    fix.wait
 
 
 # Check if the video has black frames at top and/or bottom
@@ -252,7 +271,7 @@ def black_frame_check(role):
                 top_results.append(new_line)
 
     if len(top_results) > 0:
-        print(f'{Fore.BLACK}{Back.GREEN}\nI found at least {len(top_results)} black frame(s) at the top{Style.RESET_ALL}')
+        print(f'{Fore.BLACK}{Back.GREEN}\n I found at least {len(top_results)} black frame(s) at the top {Style.RESET_ALL}')
     else:
         print(f"{Fore.BLACK}{Back.RED}\nThe title does't start with a black frame{Style.RESET_ALL}")
 
@@ -262,7 +281,7 @@ def black_frame_check(role):
             end_results.append(new_line)
 
     if len(end_results) > 0:
-        print(f'{Fore.BLACK}{Back.GREEN}\nI found at least {len(end_results)} black frame(s) at the end{Style.RESET_ALL}\n')
+        print(f'{Fore.BLACK}{Back.GREEN}\n I found at least {len(end_results)} black frame(s) at the end {Style.RESET_ALL}\n')
     else:
         print(f'{Fore.BLACK}{Back.RED}\nNo black frames at the end have been found{Style.RESET_ALL}\n')
 
@@ -279,9 +298,9 @@ def want_to_analyze(target, function):
             "meta_checker":[datacheck, title, 7, temp_output]}
 
     while True:
-        question = input(f'Do you want to analyze the {target}? y/n \n').lower()
+        question = input_validator(f"Do you want to analyze the {target}? y/n", "yes", "y", "no", "n")
         time.sleep(0.2)
-        if question == "y":
+        if question:
             func[function](*params[function])
             if target == "audio":
                 audio_results(temp_output)
@@ -297,18 +316,22 @@ def want_to_analyze(target, function):
                 break
             break
 
-        if question == "n":
-            break
         else:
-            print("\nSorry, I don't understand.\nUse y for yes and n for no\n")
-        question
+            break
 
 
 def input_validator(question, *options):
     while True:
         variable = input(f"\n{question}\n").lower()
         if variable in options:
-            return variable
+            if variable == 'y':
+                choice = True
+                return choice
+            elif variable == 'n':
+                choice = False
+                return choice
+            else:
+                return variable
 
         else:
             print(f"Sorry, I did not understand use one of these commands {options}")
@@ -328,15 +351,19 @@ if __name__ == '__main__':
 
 
     ffmpeg_audio_fix = 'ffmpeg -i {source} -c:v copy -colorspace bt709 -color_primaries bt709 -color_trc bt709 -movflags write_colr -c:a pcm_s24le -ar 48k -filter:a loudnorm=i=-24.0:tp=-6:print_format=summary:{integrated}:{true_peak}:{lra}:{threshold}:{dual_mono} {fixed_output}' 
-    
-    dual_mono_fix = 'ffmpeg -i {source} -c:v copy -colorspace bt709 -color_primaries bt709 -color_trc bt709 -movflags write_colr -c:a pcm_s24le -ar 48k -filter:a loudnorm=i=-24.0:tp=-6:print_format=summary:{integrated}:{true_peak}:{lra}:{threshold}:dual_mono=true {fixed_output}'
+
+    only_remove_timecode_track = 'ffmpeg -i {source} -dn -map_metadata -1 -metadata:s:v encoder="Apple ProRes 422 HQ" -fflags bitexact -write_tmcd 0 -vendor abm0 -c copy {fixed_output}'
+
+    remove_timecode_and_fix_audio = 'ffmpeg -i {source} -dn -map_metadata -1 -metadata:s:v encoder="Apple ProRes 422 HQ" -fflags bitexact -write_tmcd 0 -vendor abm0 -c:v copy -colorspace bt709 -color_primaries bt709 -color_trc bt709 -movflags write_colr -c:a pcm_s24le -ar 48k -filter:a loudnorm=i=-24.0:tp=-6:print_format=summary:{integrated}:{true_peak}:{lra}:{threshold}:{dual_mono} {fixed_output}' 
+
+
 
     # The dictionary where the clean information goes
-    audio_levels = {'name': 'audio levels'}
+    audio_levels = {'name':'audio levels'}
     audio_analyzed = False
 
     # The dictionary with the metadata info
-    video_data = {'name': 'video metadata'}
+    video_data = {'name':'video metadata', 'timecode_track':False, 'timecode_fix':False}
     video_meta_analyzed = False
     # This file is where I move all the information that ffmpeg prints to the console
     # later it's going to be deleted, that's why I use a random generated number (not to remove anything useful)
@@ -375,7 +402,7 @@ if __name__ == '__main__':
     
     # Function to ask if the user wants to check for black frames
     bf_check = input_validator("Do you want to search for black frames? y/n", "yes", "y", "no", "n")
-    if (bf_check == "y") or (bf_check == "yes"):
+    if bf_check:
         time.sleep(0.2)
         black_frame_check(main_prev)
 
@@ -385,17 +412,23 @@ if __name__ == '__main__':
     if audio_analyzed == True:
 
         want_fix_audio = input_validator("Do you want to fix the audio? y/n", "yes", "y", "no", "n")
-        if (want_fix_audio == "y") or (want_fix_audio == "yes"):
+        if want_fix_audio:
             time.sleep(0.2)
             # Fix the audio. The code varies depending if the video is stereo or dual mono
             if stereo_or_dm == "stereo":
                 audio_fix(title, audio_levels['measured_i'], audio_levels['measured_tp'], audio_levels['measured_lra'], audio_levels['measured_thresh'], "dual_mono=false", ffmpeg_audio_fix)
             elif stereo_or_dm == "dual mono":
                 audio_fix(title, audio_levels['measured_i'], audio_levels['measured_tp'], audio_levels['measured_lra'], audio_levels['measured_thresh'], "dual_mono=true", ffmpeg_audio_fix)
-            
-        elif (want_fix_audio == "n") or (want_fix_audio == "no"):
+            video_data['timecode_track'] = False
+        else:
+            print("Ok, I won't fix the audio\n")
+            time.sleep(0.2)
 
-            print("Ok, I won't fix the audio")
+    if video_data['timecode_track']:
+        print("Removing the timecode track...")
+        time.sleep(0.5)
+        timecode_remover(title, only_remove_timecode_track)
+        video_data['timecode_track'] = False
 
 
     print("Review Ended")
