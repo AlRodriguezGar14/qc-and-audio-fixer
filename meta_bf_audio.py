@@ -184,11 +184,11 @@ def metadata_results(read_file):
         
         print_results(printables, video_data, has_space=True)
 
-
-    video_data['timecode_fix'] = input_validator("Do you want to remove the timecode track? y/n", "yes", "y", "no", "n")
-    if video_data['timecode_fix']:
-        global ffmpeg_audio_fix
-        ffmpeg_audio_fix = remove_timecode_and_fix_audio
+    if video_data['timecode_track']:
+        video_data['timecode_fix'] = input_validator("Do you want to remove the timecode track? y/n", "yes", "y", "no", "n")
+        if video_data['timecode_fix']:
+            global ffmpeg_audio_fix
+            ffmpeg_audio_fix = remove_timecode_and_fix_audio
 
 
 def print_results(printables, dict, has_space):
