@@ -101,8 +101,6 @@ def metadata_results(read_file):
         ## We sanitize the code. If there is a data stream we Stop automatically the process.
         if video_data['timecode_track']:
             timecode_track_status = f"\n{Back.RED}{Fore.BLACK} Timecode track found. It will be removed. {Style.RESET_ALL}\n"
-            global ffmpeg_audio_fix
-            ffmpeg_audio_fix = remove_timecode_and_fix_audio
             break
 
     print(timecode_track_status)
@@ -187,6 +185,10 @@ def metadata_results(read_file):
         print_results(printables, video_data, has_space=True)
 
 
+    video_data['timecode_fix'] = input_validator("Do you want to remove the timecode track? y/n", "yes", "y", "no", "n")
+    if video_data['timecode_fix']:
+        global ffmpeg_audio_fix
+        ffmpeg_audio_fix = remove_timecode_and_fix_audio
 
 
 def print_results(printables, dict, has_space):
@@ -221,6 +223,8 @@ def timecode_remover(title, code):
     for line in fix.stderr:
         sys.stdout.write(line)
     fix.wait
+
+    print('The timecode track has been removed')
 
 
 # Check if the video has black frames at top and/or bottom
@@ -420,15 +424,17 @@ if __name__ == '__main__':
             elif stereo_or_dm == "dual mono":
                 audio_fix(title, audio_levels['measured_i'], audio_levels['measured_tp'], audio_levels['measured_lra'], audio_levels['measured_thresh'], "dual_mono=true", ffmpeg_audio_fix)
             video_data['timecode_track'] = False
+            video_data['timecode_fix'] = False
         else:
             print("Ok, I won't fix the audio\n")
             time.sleep(0.2)
 
-    if video_data['timecode_track']:
+    if video_data['timecode_fix']:
         print("Removing the timecode track...")
         time.sleep(0.5)
         timecode_remover(title, only_remove_timecode_track)
         video_data['timecode_track'] = False
+        video_data['timecode_fix'] = False
 
 
     print("Review Ended")
